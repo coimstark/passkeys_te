@@ -145,25 +145,49 @@ class WebAuthnService extends GetxService {
       
       // Step 7: Send credential to server
       addLog('📤 Step 7: Sending credential to server');
-      final verifyUri = Uri.http(rpId, '/webauthn/attestation/result');
-      addLog('   - Endpoint: http://$rpId/webauthn/attestation/result');
+      final signupUri = Uri.http(rpId, '/signup');
+      addLog('   - Endpoint: http://$rpId/signup');
+      
+      final signupPayload = {
+        'userHandle': username,
+        'username': username,
+        'password': '', // Empty for passkey-only authentication
+        'authenticator': {
+          'clientDataJSON': base64Url.encode(utf8.encode(clientDataJson)),
+          'attestationObject': base64Url.encode(cborData),
+          'clientExtensions': '',
+          'transports': ['internal'], // For platform authenticator
+        },
+        'singleFactorAuthenticationAllowed': true,
+      };
+      
+      addLog('   - Payload prepared');
+      addLog('   - User handle: $username');
+      addLog('   - Attestation object size: ${base64Url.encode(cborData).length} chars');
       
       final verifyResponse = await http.post(
-        verifyUri,
+        signupUri,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: json.encode(credentialResponse),
+        body: json.encode(signupPayload),
       );
+      
+      addLog('   - Server response status: ${verifyResponse.statusCode}');
       
       if (verifyResponse.statusCode == 200 || verifyResponse.statusCode == 201) {
         addLog('✅ Server verification successful!');
-        final verifyResult = json.decode(verifyResponse.body);
-        addLog('   - Server response: ${verifyResult.toString()}');
+        try {
+          final verifyResult = json.decode(verifyResponse.body);
+          addLog('   - Server response: ${verifyResult.toString()}');
+        } catch (e) {
+          addLog('   - Server response: ${verifyResponse.body}');
+        }
       } else {
         addLog('⚠️  Server returned status: ${verifyResponse.statusCode}');
         addLog('   - Response: ${verifyResponse.body}');
+        throw Exception('Server verification failed: ${verifyResponse.statusCode}');
       }
       addLog('');
       
@@ -299,25 +323,56 @@ class WebAuthnService extends GetxService {
       
       // Step 7: Send assertion to server
       addLog('📤 Step 7: Sending assertion to server');
-      final verifyUri = Uri.http(rpId, '/webauthn/assertion/result');
-      addLog('   - Endpoint: http://$rpId/webauthn/assertion/result');
+      final signinUri = Uri.http(rpId, '/signin');
+      addLog('   - Endpoint: http://$rpId/signin');
+      
+      final signinPayload = {
+        'username': username,
+        'password': '', // Empty for passkey authentication
+        'authenticator': {
+          'credentialId': base64Url.encode(assertion.selectedCredentialId),
+          'clientDataJSON': base64Url.encode(utf8.encode(clientDataJson)),
+          'authenticatorData': base64Url.encode(assertion.authenticatorData),
+          'signature': base64Url.encode(assertion.signature),
+          'userHandle': base64Url.encode(assertion.selectedCredentialUserHandle),
+        },
+      };
+      
+      addLog('   - Payload prepared');
+      addLog('   - Username: $username');
+      addLog('   - Credential ID: ${base64Url.encode(assertion.selectedCredentialId).substring(0, 20)}...');
       
       final verifyResponse = await http.post(
-        verifyUri,
+        signinUri,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: json.encode(assertionResponse),
+        body: json.encode(signinPayload),
       );
+      
+      addLog('   - Server response status: ${verifyResponse.statusCode}');
       
       if (verifyResponse.statusCode == 200 || verifyResponse.statusCode == 201) {
         addLog('✅ Server verification successful!');
-        final verifyResult = json.decode(verifyResponse.body);
-        addLog('   - Server response: ${verifyResult.toString()}');
+        try {
+          final verifyResult = json.decode(verifyResponse.body);
+          addLog('   - Server response: ${verifyResult.toString()}');
+          
+          // Extract session info if available
+          if (verifyResult['sessionId'] != null) {
+            addLog('   - Session ID: ${verifyResult['sessionId']}');
+          }
+          if (verifyResult['token'] != null) {
+            addLog('   - Auth token received');
+          }
+        } catch (e) {
+          addLog('   - Server response: ${verifyResponse.body}');
+        }
       } else {
         addLog('⚠️  Server returned status: ${verifyResponse.statusCode}');
         addLog('   - Response: ${verifyResponse.body}');
+        throw Exception('Server verification failed: ${verifyResponse.statusCode}');
       }
       addLog('');
       
